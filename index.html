@@ -19,6 +19,7 @@
       --warning-bg: #fffbeb;
       --success: #166534;
       --danger: #b91c1c;
+      --info-bg: #eff6ff;
       --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
       --radius: 14px;
       --radius-sm: 10px;
@@ -45,7 +46,7 @@
     .status-pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
     .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--warning); }
     .controls {
-      display: grid; grid-template-columns: 1.3fr 1fr 1fr auto auto auto; gap: var(--space-3);
+      display: grid; grid-template-columns: 1.3fr 1fr 1fr auto auto auto auto; gap: var(--space-3);
       padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); background: var(--surface);
     }
     .field, .field-inline { display: flex; flex-direction: column; gap: 6px; }
@@ -60,6 +61,18 @@
     .btn:hover { border-color: #cbd5e1; transform: translateY(-1px); }
     .btn.primary { background: var(--primary); color: white; border-color: var(--primary); }
     .btn.ghost { background: var(--surface-2); }
+    .mapping-panel {
+      margin: var(--space-4) var(--space-5) 0; padding: var(--space-4); border: 1px solid var(--border);
+      border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); display: grid; gap: var(--space-4);
+    }
+    .mapping-head { display: flex; justify-content: space-between; gap: var(--space-4); align-items: flex-start; flex-wrap: wrap; }
+    .mapping-head h2 { margin: 0; font-size: 1rem; }
+    .mapping-head p { margin: 4px 0 0; color: var(--muted); font-size: 0.9rem; }
+    .mapping-grid { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: var(--space-4); }
+    .mapping-card { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); padding: var(--space-4); display: grid; gap: var(--space-3); }
+    .mapping-card h3 { margin: 0; font-size: 0.95rem; }
+    .mapping-card .hint { color: var(--muted); font-size: 0.82rem; margin: 0; }
+    .mapping-note { padding: var(--space-3); border-radius: var(--radius-sm); background: var(--info-bg); color: #1e40af; font-size: 0.88rem; }
     .board { padding: var(--space-5); display: grid; gap: var(--space-4); }
     .project {
       background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden;
@@ -110,7 +123,7 @@
     .footer-note { color: var(--muted); font-size: 0.85rem; padding: 0 var(--space-5) var(--space-5); }
     .hidden { display: none !important; }
     @media (max-width: 1100px) {
-      .controls { grid-template-columns: 1fr 1fr; }
+      .controls, .mapping-grid { grid-template-columns: 1fr; }
       .task-head, .subtask-row { grid-template-columns: 1fr; }
       .subtasks { padding-left: var(--space-5); }
     }
@@ -149,8 +162,25 @@
         </select>
       </div>
       <button class="btn ghost" id="reloadBtn">Rafraîchir</button>
+      <button class="btn ghost" id="mappingBtn">Mapper les champs</button>
       <button class="btn primary" id="savePrefsBtn">Sauver les préférences</button>
     </div>
+
+    <section class="mapping-panel hidden" id="mappingPanel" aria-label="Configuration du mapping des champs">
+      <div class="mapping-head">
+        <div>
+          <h2>Mapping des tables et champs</h2>
+          <p>Associe tes tables Grist et leurs colonnes aux champs utilisés par la vue hiérarchique.</p>
+        </div>
+        <div class="toolbar-row">
+          <button class="mini-btn" id="resetMappingBtn">Valeurs par défaut</button>
+          <button class="mini-btn primary" id="applyMappingBtn">Appliquer le mapping</button>
+          <button class="mini-btn" id="closeMappingBtn">Fermer</button>
+        </div>
+      </div>
+      <div class="mapping-note">Les listes sont préremplies à partir des tables disponibles. Si une table est vide, le champ actuel reste proposé et peut être remplacé à la main.</div>
+      <div class="mapping-grid" id="mappingGrid"></div>
+    </section>
 
     <div class="board" id="board"></div>
   </div>
@@ -177,10 +207,47 @@
       }
     };
 
+
+    const FIELD_GROUPS = {
+      projects: {
+        title: 'Projets',
+        description: 'Table source des groupes de premier niveau.',
+        tableKey: 'projects',
+        fields: [
+          ['projectName', 'Nom du projet']
+        ]
+      },
+      tasks: {
+        title: 'Tâches',
+        description: 'Table source des tâches rattachées aux projets.',
+        tableKey: 'tasks',
+        fields: [
+          ['taskProjectRef', 'Référence vers le projet'],
+          ['taskTitle', 'Titre de la tâche'],
+          ['taskStatus', 'Statut de la tâche'],
+          ['taskOwner', 'Responsable de la tâche'],
+          ['taskDue', 'Échéance de la tâche']
+        ]
+      },
+      subtasks: {
+        title: 'Sous-tâches',
+        description: 'Table source des sous-tâches rattachées aux tâches.',
+        tableKey: 'subtasks',
+        fields: [
+          ['subtaskTaskRef', 'Référence vers la tâche'],
+          ['subtaskTitle', 'Titre de la sous-tâche'],
+          ['subtaskStatus', 'Statut de la sous-tâche'],
+          ['subtaskOwner', 'Responsable de la sous-tâche'],
+          ['subtaskDue', 'Échéance de la sous-tâche']
+        ]
+      }
+    };
+
     let config = structuredClone(DEFAULT_CONFIG);
     let dataStore = {projects: [], tasks: [], subtasks: []};
     let filteredTree = [];
     let statusValues = new Set();
+    let schemaStore = {tables: [], columns: {projects: [], tasks: [], subtasks: []}};
     let busyCounter = 0;
 
     const els = {
@@ -192,6 +259,12 @@
       statusFilter: document.getElementById('statusFilter'),
       showEmptyTasks: document.getElementById('showEmptyTasks'),
       reloadBtn: document.getElementById('reloadBtn'),
+      mappingBtn: document.getElementById('mappingBtn'),
+      mappingPanel: document.getElementById('mappingPanel'),
+      mappingGrid: document.getElementById('mappingGrid'),
+      resetMappingBtn: document.getElementById('resetMappingBtn'),
+      applyMappingBtn: document.getElementById('applyMappingBtn'),
+      closeMappingBtn: document.getElementById('closeMappingBtn'),
       savePrefsBtn: document.getElementById('savePrefsBtn')
     };
 
@@ -211,6 +284,172 @@
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
+    function uniqueValues(values) {
+      return Array.from(new Set(values.filter(v => v != null && v !== '').map(String))).sort((a, b) => a.localeCompare(b));
+    }
+
+    function asRows(tableData) {
+      if (Array.isArray(tableData)) return tableData;
+      if (!tableData || typeof tableData !== 'object') return [];
+      const keys = Object.keys(tableData);
+      const rowCount = Math.max(0, ...keys.map(key => Array.isArray(tableData[key]) ? tableData[key].length : 0));
+      return Array.from({length: rowCount}, (_, index) => Object.fromEntries(
+        keys.map(key => [key, Array.isArray(tableData[key]) ? tableData[key][index] : tableData[key]])
+      ));
+    }
+
+    function currentColumnsForRole(role) {
+      const group = FIELD_GROUPS[role];
+      return group.fields.map(([key]) => config.columns[key]);
+    }
+
+    function renderOptions(values, selected, placeholder = null) {
+      const opts = uniqueValues([selected, ...values]);
+      const first = placeholder == null ? '' : `<option value="">${escapeHtml(placeholder)}</option>`;
+      return first + opts.map(value => `<option value="${escapeHtml(value)}" ${String(value) === String(selected) ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('');
+    }
+
+    function columnRefMatches(columnParentId, tableRowId) {
+      return refId(columnParentId) === tableRowId;
+    }
+
+    async function getColumnsFromMetadata(tableId) {
+      const [tablesData, columnsData] = await Promise.all([
+        grist.docApi.fetchTable('_grist_Tables'),
+        grist.docApi.fetchTable('_grist_Tables_column')
+      ]);
+      const tableRow = asRows(tablesData).find(row => row.tableId === tableId);
+      if (!tableRow) return [];
+      return uniqueValues(asRows(columnsData)
+        .filter(row => columnRefMatches(row.parentId, tableRow.id))
+        .sort((a, b) => (a.parentPos ?? a.id ?? 0) - (b.parentPos ?? b.id ?? 0))
+        .map(row => row.colId)
+        .filter(colId => colId && colId !== 'manualSort'));
+    }
+
+    async function getColumnsForTable(tableId, role) {
+      const fallback = currentColumnsForRole(role);
+      if (!tableId) return fallback;
+      try {
+        const metadataColumns = await getColumnsFromMetadata(tableId);
+        if (metadataColumns.length) return uniqueValues([...fallback, ...metadataColumns]);
+      } catch (err) {
+        // Fall back to row inspection when metadata is not accessible in the current document.
+      }
+      try {
+        const rows = asRows(await grist.docApi.fetchTable(tableId));
+        const discovered = rows.flatMap(row => Object.keys(row).filter(key => key !== 'id'));
+        return uniqueValues([...fallback, ...discovered]);
+      } catch (err) {
+        return fallback;
+      }
+    }
+
+    async function refreshSchema(roleToRefresh = null) {
+      setBusy('Lecture du schéma…', '#2563eb');
+      try {
+        schemaStore.tables = await grist.docApi.listTables();
+        const roles = roleToRefresh ? [roleToRefresh] : Object.keys(FIELD_GROUPS);
+        await Promise.all(roles.map(async role => {
+          schemaStore.columns[role] = await getColumnsForTable(config.tables[FIELD_GROUPS[role].tableKey], role);
+        }));
+        clearBusy();
+      } catch (err) {
+        clearBusy('Erreur schéma', '#dc2626');
+        alert('Impossible de lire le schéma : ' + err.message);
+      }
+    }
+
+    function renderMappingPanel() {
+      els.mappingGrid.innerHTML = Object.entries(FIELD_GROUPS).map(([role, group]) => {
+        const tableId = config.tables[group.tableKey];
+        const columns = schemaStore.columns[role] || [];
+        const fields = group.fields.map(([key, label]) => `
+          <div class="field">
+            <label for="mapping-${key}">${escapeHtml(label)}</label>
+            <select id="mapping-${key}" data-map-column="${key}" data-map-role="${role}">
+              ${renderOptions(columns, config.columns[key], 'Choisir une colonne')}
+            </select>
+            <input type="text" data-map-column-text="${key}" value="${escapeHtml(config.columns[key])}" placeholder="Ou saisir un identifiant de colonne" />
+          </div>
+        `).join('');
+        return `
+          <article class="mapping-card" data-map-role-card="${role}">
+            <h3>${escapeHtml(group.title)}</h3>
+            <p class="hint">${escapeHtml(group.description)}</p>
+            <div class="field">
+              <label for="mapping-table-${role}">Table</label>
+              <select id="mapping-table-${role}" data-map-table="${role}">
+                ${renderOptions(schemaStore.tables, tableId, 'Choisir une table')}
+              </select>
+              <input type="text" data-map-table-text="${role}" value="${escapeHtml(tableId)}" placeholder="Ou saisir un identifiant de table" />
+            </div>
+            ${fields}
+          </article>
+        `;
+      }).join('');
+      bindMappingEvents();
+    }
+
+    function syncSelectTextInput(select) {
+      const textInput = select.parentElement.querySelector('input');
+      if (textInput) textInput.value = select.value;
+    }
+
+    function readMappingDraft() {
+      els.mappingGrid.querySelectorAll('[data-map-table-text]').forEach(input => {
+        const role = input.dataset.mapTableText;
+        config.tables[FIELD_GROUPS[role].tableKey] = input.value.trim();
+      });
+      els.mappingGrid.querySelectorAll('[data-map-column-text]').forEach(input => {
+        config.columns[input.dataset.mapColumnText] = input.value.trim();
+      });
+    }
+
+    async function refreshRoleColumns(role, tableId) {
+      config.tables[FIELD_GROUPS[role].tableKey] = tableId.trim();
+      schemaStore.columns[role] = [];
+      await refreshSchema(role);
+      renderMappingPanel();
+    }
+
+    function bindMappingEvents() {
+      els.mappingGrid.querySelectorAll('select[data-map-column], select[data-map-table]').forEach(select => {
+        select.addEventListener('change', async () => {
+          syncSelectTextInput(select);
+          readMappingDraft();
+          if (select.dataset.mapTable) {
+            await refreshRoleColumns(select.dataset.mapTable, select.value);
+          }
+        });
+      });
+      els.mappingGrid.querySelectorAll('[data-map-table-text]').forEach(input => {
+        input.addEventListener('change', async () => {
+          readMappingDraft();
+          await refreshRoleColumns(input.dataset.mapTableText, input.value);
+        });
+      });
+    }
+
+    async function openMappingPanel() {
+      els.mappingPanel.classList.remove('hidden');
+      await refreshSchema();
+      renderMappingPanel();
+    }
+
+    async function applyMapping() {
+      readMappingDraft();
+      await savePrefs();
+      await fetchAllData();
+      els.mappingPanel.classList.add('hidden');
+    }
+
+    async function resetMapping() {
+      config = structuredClone(DEFAULT_CONFIG);
+      await refreshSchema();
+      renderMappingPanel();
     }
 
     function refId(value) {
@@ -519,24 +758,17 @@
         el.addEventListener('change', render);
       });
       els.reloadBtn.addEventListener('click', fetchAllData);
+      els.mappingBtn.addEventListener('click', openMappingPanel);
+      els.closeMappingBtn.addEventListener('click', () => els.mappingPanel.classList.add('hidden'));
+      els.applyMappingBtn.addEventListener('click', applyMapping);
+      els.resetMappingBtn.addEventListener('click', resetMapping);
       els.savePrefsBtn.addEventListener('click', savePrefs);
     }
 
     async function init() {
       grist.ready({
         requiredAccess: 'full',
-        onEditOptions: async () => {
-          const current = await grist.getOption('hierarchyPrefs');
-          const input = prompt(
-            'Configurer les tables sous forme JSON. Exemple: {"tables":{"projects":"Projects","tasks":"Tasks","subtasks":"Subtasks"},"columns":{"projectName":"Name","taskProjectRef":"Project","taskTitle":"Title","taskStatus":"Status","taskOwner":"Owner","taskDue":"DueDate","subtaskTaskRef":"Task","subtaskTitle":"Title","subtaskStatus":"Status","subtaskOwner":"Owner","subtaskDue":"DueDate"}}',
-            JSON.stringify(current?.config || config)
-          );
-          if (!input) return;
-          const parsed = JSON.parse(input);
-          config = {...config, ...parsed, tables: {...config.tables, ...parsed.tables}, columns: {...config.columns, ...parsed.columns}};
-          await savePrefs();
-          await fetchAllData();
-        }
+        onEditOptions: openMappingPanel
       });
       bindStaticEvents();
       await loadPrefs();
