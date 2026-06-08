@@ -290,16 +290,6 @@
       return Array.from(new Set(values.filter(v => v != null && v !== '').map(String))).sort((a, b) => a.localeCompare(b));
     }
 
-    function asRows(tableData) {
-      if (Array.isArray(tableData)) return tableData;
-      if (!tableData || typeof tableData !== 'object') return [];
-      const keys = Object.keys(tableData);
-      const rowCount = Math.max(0, ...keys.map(key => Array.isArray(tableData[key]) ? tableData[key].length : 0));
-      return Array.from({length: rowCount}, (_, index) => Object.fromEntries(
-        keys.map(key => [key, Array.isArray(tableData[key]) ? tableData[key][index] : tableData[key]])
-      ));
-    }
-
     function currentColumnsForRole(role) {
       const group = FIELD_GROUPS[role];
       return group.fields.map(([key]) => config.columns[key]);
@@ -311,35 +301,11 @@
       return first + opts.map(value => `<option value="${escapeHtml(value)}" ${String(value) === String(selected) ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('');
     }
 
-    function columnRefMatches(columnParentId, tableRowId) {
-      return refId(columnParentId) === tableRowId;
-    }
-
-    async function getColumnsFromMetadata(tableId) {
-      const [tablesData, columnsData] = await Promise.all([
-        grist.docApi.fetchTable('_grist_Tables'),
-        grist.docApi.fetchTable('_grist_Tables_column')
-      ]);
-      const tableRow = asRows(tablesData).find(row => row.tableId === tableId);
-      if (!tableRow) return [];
-      return uniqueValues(asRows(columnsData)
-        .filter(row => columnRefMatches(row.parentId, tableRow.id))
-        .sort((a, b) => (a.parentPos ?? a.id ?? 0) - (b.parentPos ?? b.id ?? 0))
-        .map(row => row.colId)
-        .filter(colId => colId && colId !== 'manualSort'));
-    }
-
     async function getColumnsForTable(tableId, role) {
       const fallback = currentColumnsForRole(role);
       if (!tableId) return fallback;
       try {
-        const metadataColumns = await getColumnsFromMetadata(tableId);
-        if (metadataColumns.length) return uniqueValues([...fallback, ...metadataColumns]);
-      } catch (err) {
-        // Fall back to row inspection when metadata is not accessible in the current document.
-      }
-      try {
-        const rows = asRows(await grist.docApi.fetchTable(tableId));
+        const rows = await grist.docApi.fetchTable(tableId);
         const discovered = rows.flatMap(row => Object.keys(row).filter(key => key !== 'id'));
         return uniqueValues([...fallback, ...discovered]);
       } catch (err) {
@@ -398,37 +364,16 @@
       if (textInput) textInput.value = select.value;
     }
 
-    function readMappingDraft() {
-      els.mappingGrid.querySelectorAll('[data-map-table-text]').forEach(input => {
-        const role = input.dataset.mapTableText;
-        config.tables[FIELD_GROUPS[role].tableKey] = input.value.trim();
-      });
-      els.mappingGrid.querySelectorAll('[data-map-column-text]').forEach(input => {
-        config.columns[input.dataset.mapColumnText] = input.value.trim();
-      });
-    }
-
-    async function refreshRoleColumns(role, tableId) {
-      config.tables[FIELD_GROUPS[role].tableKey] = tableId.trim();
-      schemaStore.columns[role] = [];
-      await refreshSchema(role);
-      renderMappingPanel();
-    }
-
     function bindMappingEvents() {
       els.mappingGrid.querySelectorAll('select[data-map-column], select[data-map-table]').forEach(select => {
         select.addEventListener('change', async () => {
           syncSelectTextInput(select);
-          readMappingDraft();
           if (select.dataset.mapTable) {
-            await refreshRoleColumns(select.dataset.mapTable, select.value);
+            const role = select.dataset.mapTable;
+            config.tables[FIELD_GROUPS[role].tableKey] = select.value;
+            await refreshSchema(role);
+            renderMappingPanel();
           }
-        });
-      });
-      els.mappingGrid.querySelectorAll('[data-map-table-text]').forEach(input => {
-        input.addEventListener('change', async () => {
-          readMappingDraft();
-          await refreshRoleColumns(input.dataset.mapTableText, input.value);
         });
       });
     }
@@ -440,7 +385,13 @@
     }
 
     async function applyMapping() {
-      readMappingDraft();
+      els.mappingGrid.querySelectorAll('[data-map-table-text]').forEach(input => {
+        const role = input.dataset.mapTableText;
+        config.tables[FIELD_GROUPS[role].tableKey] = input.value.trim();
+      });
+      els.mappingGrid.querySelectorAll('[data-map-column-text]').forEach(input => {
+        config.columns[input.dataset.mapColumnText] = input.value.trim();
+      });
       await savePrefs();
       await fetchAllData();
       els.mappingPanel.classList.add('hidden');
