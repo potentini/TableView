@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Grist Project Task Subtask Widget</title>
+  <title>Grist Project Task Subtask Widget v1.1.0</title>
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <style>
     :root {
@@ -134,7 +134,7 @@
     <div class="topbar">
       <div class="title-row">
         <div class="title">
-          <h1>Vue hiérarchique Projets → Tâches → Sous-tâches</h1>
+          <h1>Vue hiérarchique Projets → Tâches → Sous-tâches <span id="appVersion"></span></h1>
           <p>Le widget affiche les projets comme groupes et permet de modifier les tâches et sous-tâches même quand aucun niveau bas n’existe encore.</p>
         </div>
         <div class="status-pill"><span class="dot" id="syncDot"></span><span id="syncText">Initialisation…</span></div>
@@ -186,6 +186,8 @@
   </div>
 
   <script>
+    const APP_VERSION = 'v1.1.0';
+
     const DEFAULT_CONFIG = {
       tables: {
         projects: 'Projects',
@@ -265,7 +267,8 @@
       resetMappingBtn: document.getElementById('resetMappingBtn'),
       applyMappingBtn: document.getElementById('applyMappingBtn'),
       closeMappingBtn: document.getElementById('closeMappingBtn'),
-      savePrefsBtn: document.getElementById('savePrefsBtn')
+      savePrefsBtn: document.getElementById('savePrefsBtn'),
+      appVersion: document.getElementById('appVersion')
     };
 
     function setBusy(message, color = '#b45309') {
@@ -409,6 +412,25 @@
       if (Array.isArray(value)) return value[0] ?? null;
       const asNumber = Number(value);
       return Number.isNaN(asNumber) ? null : asNumber;
+    }
+
+    function isColumnarTable(tableData) {
+      return tableData && !Array.isArray(tableData) && typeof tableData === 'object' && Array.isArray(tableData.id);
+    }
+
+    function normalizeTableRows(tableData) {
+      if (Array.isArray(tableData)) return tableData;
+      if (!isColumnarTable(tableData)) return [];
+
+      return tableData.id.map((id, index) => {
+        const row = {id};
+        Object.entries(tableData).forEach(([columnId, values]) => {
+          if (columnId !== 'id' && Array.isArray(values)) {
+            row[columnId] = values[index];
+          }
+        });
+        return row;
+      });
     }
 
     function collectStatuses() {
@@ -605,7 +627,11 @@
           grist.docApi.fetchTable(config.tables.tasks),
           grist.docApi.fetchTable(config.tables.subtasks)
         ]);
-        dataStore = {projects, tasks, subtasks};
+        dataStore = {
+          projects: normalizeTableRows(projects),
+          tasks: normalizeTableRows(tasks),
+          subtasks: normalizeTableRows(subtasks)
+        };
         fillProjectFilter();
         collectStatuses();
         render();
@@ -721,6 +747,8 @@
         requiredAccess: 'full',
         onEditOptions: openMappingPanel
       });
+      document.title = `${document.title.replace(/\s+v[\d.]+$/, '')} ${APP_VERSION}`;
+      els.appVersion.textContent = APP_VERSION;
       bindStaticEvents();
       await loadPrefs();
       await fetchAllData();
