@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Grist Project Task Subtask Widget</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #0f766e;
+      --primary-2: #ecfeff;
+      --warning: #b45309;
+      --warning-bg: #fffbeb;
+      --success: #166534;
+      --danger: #b91c1c;
+      --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      --radius: 14px;
+      --radius-sm: 10px;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 20px;
+      --space-6: 24px;
+      --space-8: 32px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    body { min-height: 100vh; }
+    button, input, select { font: inherit; }
+    .app { display: grid; grid-template-rows: auto auto 1fr; min-height: 100vh; }
+    .topbar {
+      position: sticky; top: 0; z-index: 30; background: rgba(245,247,251,0.92); backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border); padding: var(--space-4) var(--space-5);
+    }
+    .title-row { display: flex; justify-content: space-between; gap: var(--space-4); align-items: center; flex-wrap: wrap; }
+    .title h1 { margin: 0; font-size: 1.25rem; }
+    .title p { margin: 4px 0 0; color: var(--muted); font-size: 0.95rem; }
+    .status-pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+    .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--warning); }
+    .controls {
+      display: grid; grid-template-columns: 1.3fr 1fr 1fr auto auto auto; gap: var(--space-3);
+      padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border); background: var(--surface);
+    }
+    .field, .field-inline { display: flex; flex-direction: column; gap: 6px; }
+    .field label, .field-inline label { font-size: 0.8rem; color: var(--muted); }
+    input[type="text"], select {
+      width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: white; color: var(--text);
+    }
+    .btn {
+      align-self: end; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: white; cursor: pointer;
+      transition: 160ms ease; color: var(--text);
+    }
+    .btn:hover { border-color: #cbd5e1; transform: translateY(-1px); }
+    .btn.primary { background: var(--primary); color: white; border-color: var(--primary); }
+    .btn.ghost { background: var(--surface-2); }
+    .board { padding: var(--space-5); display: grid; gap: var(--space-4); }
+    .project {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden;
+    }
+    .project-head {
+      display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--space-5);
+      background: linear-gradient(180deg, #fcfffe, #f8fafc); border-bottom: 1px solid var(--border);
+    }
+    .project-meta { display: flex; gap: var(--space-3); flex-wrap: wrap; color: var(--muted); font-size: 0.9rem; }
+    .project-title { margin: 0; font-size: 1.05rem; }
+    .task-list { display: grid; gap: 0; }
+    .task {
+      border-top: 1px solid var(--border);
+    }
+    .task:first-child { border-top: 0; }
+    .task-head {
+      display: grid; grid-template-columns: 28px minmax(240px, 2fr) repeat(3, minmax(120px, 1fr)) auto; gap: var(--space-3);
+      align-items: center; padding: 14px var(--space-5); background: white;
+    }
+    .task.expanded .task-head { background: #fcfdfd; }
+    .subtasks { padding: 0 var(--space-5) var(--space-4) calc(var(--space-5) + 28px); background: #fcfdfd; }
+    .subtasks-wrap { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: white; }
+    .subtask-row {
+      display: grid; grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(110px, 1fr)) auto; gap: var(--space-3);
+      align-items: center; padding: 10px 12px; border-top: 1px solid var(--border);
+    }
+    .subtask-row:first-child { border-top: 0; }
+    .cell input, .cell select {
+      border: 1px solid transparent; background: transparent; padding: 8px 10px; border-radius: 8px;
+    }
+    .cell input:focus, .cell select:focus { outline: none; border-color: #99f6e4; background: #f0fdfa; }
+    .toggle {
+      width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); background: white; cursor: pointer;
+    }
+    .muted { color: var(--muted); }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: var(--primary-2); color: var(--primary); font-size: 0.8rem;
+    }
+    .empty-subtasks {
+      padding: 12px; color: var(--muted); background: var(--warning-bg); border-top: 1px solid var(--border);
+    }
+    .toolbar-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+    .mini-btn {
+      padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: white; cursor: pointer;
+    }
+    .mini-btn.primary { background: #ecfdf5; color: var(--success); }
+    .mini-btn.danger { background: #fef2f2; color: var(--danger); }
+    .footer-note { color: var(--muted); font-size: 0.85rem; padding: 0 var(--space-5) var(--space-5); }
+    .hidden { display: none !important; }
+    @media (max-width: 1100px) {
+      .controls { grid-template-columns: 1fr 1fr; }
+      .task-head, .subtask-row { grid-template-columns: 1fr; }
+      .subtasks { padding-left: var(--space-5); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="title-row">
+        <div class="title">
+          <h1>Vue hiérarchique Projets → Tâches → Sous-tâches</h1>
+          <p>Le widget affiche les projets comme groupes et permet de modifier les tâches et sous-tâches même quand aucun niveau bas n’existe encore.</p>
+        </div>
+        <div class="status-pill"><span class="dot" id="syncDot"></span><span id="syncText">Initialisation…</span></div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="field">
+        <label for="searchInput">Recherche</label>
+        <input id="searchInput" type="text" placeholder="Projet, tâche, sous-tâche…" />
+      </div>
+      <div class="field">
+        <label for="projectFilter">Projet</label>
+        <select id="projectFilter"><option value="">Tous les projets</option></select>
+      </div>
+      <div class="field">
+        <label for="statusFilter">Statut tâche</label>
+        <select id="statusFilter"><option value="">Tous</option></select>
+      </div>
+      <div class="field-inline">
+        <label for="showEmptyTasks">Affichage</label>
+        <select id="showEmptyTasks">
+          <option value="yes">Afficher tâches sans sous-tâches</option>
+          <option value="no">Masquer tâches sans sous-tâches</option>
+        </select>
+      </div>
+      <button class="btn ghost" id="reloadBtn">Rafraîchir</button>
+      <button class="btn primary" id="savePrefsBtn">Sauver les préférences</button>
+    </div>
+
+    <div class="board" id="board"></div>
+  </div>
+
+  <script>
+    const DEFAULT_CONFIG = {
+      tables: {
+        projects: 'Projects',
+        tasks: 'Tasks',
+        subtasks: 'Subtasks'
+      },
+      columns: {
+        projectName: 'Name',
+        taskProjectRef: 'Project',
+        taskTitle: 'Title',
+        taskStatus: 'Status',
+        taskOwner: 'Owner',
+        taskDue: 'DueDate',
+        subtaskTaskRef: 'Task',
+        subtaskTitle: 'Title',
+        subtaskStatus: 'Status',
+        subtaskOwner: 'Owner',
+        subtaskDue: 'DueDate'
+      }
+    };
+
+    let config = structuredClone(DEFAULT_CONFIG);
+    let dataStore = {projects: [], tasks: [], subtasks: []};
+    let filteredTree = [];
+    let statusValues = new Set();
+    let busyCounter = 0;
+
+    const els = {
+      board: document.getElementById('board'),
+      syncText: document.getElementById('syncText'),
+      syncDot: document.getElementById('syncDot'),
+      searchInput: document.getElementById('searchInput'),
+      projectFilter: document.getElementById('projectFilter'),
+      statusFilter: document.getElementById('statusFilter'),
+      showEmptyTasks: document.getElementById('showEmptyTasks'),
+      reloadBtn: document.getElementById('reloadBtn'),
+      savePrefsBtn: document.getElementById('savePrefsBtn')
+    };
+
+    function setBusy(message, color = '#b45309') {
+      busyCounter += 1;
+      els.syncText.textContent = message;
+      els.syncDot.style.background = color;
+    }
+
+    function clearBusy(message = 'Synchronisé', color = '#16a34a') {
+      busyCounter = Math.max(0, busyCounter - 1);
+      if (busyCounter === 0) {
+        els.syncText.textContent = message;
+        els.syncDot.style.background = color;
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
+    function refId(value) {
+      if (value == null || value === '') return null;
+      if (typeof value === 'number') return value;
+      if (Array.isArray(value)) return value[0] ?? null;
+      const asNumber = Number(value);
+      return Number.isNaN(asNumber) ? null : asNumber;
+    }
+
+    function collectStatuses() {
+      statusValues = new Set(dataStore.tasks.map(t => t[config.columns.taskStatus]).filter(Boolean));
+      const existing = Array.from(statusValues).sort();
+      els.statusFilter.innerHTML = '<option value="">Tous</option>' + existing.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+    }
+
+    function fillProjectFilter() {
+      els.projectFilter.innerHTML = '<option value="">Tous les projets</option>' + dataStore.projects
+        .map(p => `<option value="${p.id}">${escapeHtml(p[config.columns.projectName] || ('Projet #' + p.id))}</option>`).join('');
+    }
+
+    function buildTree() {
+      const projectMap = new Map(dataStore.projects.map(p => [p.id, {...p, tasks: []}]));
+      const taskMap = new Map();
+
+      dataStore.tasks.forEach(task => {
+        const projectId = refId(task[config.columns.taskProjectRef]);
+        const taskNode = {...task, subtasks: []};
+        taskMap.set(task.id, taskNode);
+        if (!projectMap.has(projectId)) {
+          projectMap.set(projectId, { id: projectId ?? `orph-${task.id}`, [config.columns.projectName]: 'Projet non résolu', tasks: [] });
+        }
+        projectMap.get(projectId).tasks.push(taskNode);
+      });
+
+      dataStore.subtasks.forEach(subtask => {
+        const taskId = refId(subtask[config.columns.subtaskTaskRef]);
+        const taskNode = taskMap.get(taskId);
+        if (taskNode) taskNode.subtasks.push({...subtask});
+      });
+
+      return Array.from(projectMap.values()).sort((a, b) => String(a[config.columns.projectName] || '').localeCompare(String(b[config.columns.projectName] || '')));
+    }
+
+    function passesFilters(project, task, subtask) {
+      const q = els.searchInput.value.trim().toLowerCase();
+      const projectFilter = els.projectFilter.value;
+      const statusFilter = els.statusFilter.value;
+      const showEmpty = els.showEmptyTasks.value === 'yes';
+
+      if (projectFilter && String(project.id) !== projectFilter) return false;
+      if (statusFilter && String(task[config.columns.taskStatus] || '') !== statusFilter) return false;
+      if (!showEmpty && (!task.subtasks || task.subtasks.length === 0)) return false;
+      if (!q) return true;
+
+      const hay = [
+        project[config.columns.projectName],
+        task[config.columns.taskTitle],
+        task[config.columns.taskStatus],
+        task[config.columns.taskOwner],
+        subtask?.[config.columns.subtaskTitle],
+        subtask?.[config.columns.subtaskStatus],
+        subtask?.[config.columns.subtaskOwner]
+      ].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    }
+
+    function getFilteredTree() {
+      const tree = buildTree();
+      return tree.map(project => {
+        const tasks = project.tasks.filter(task => {
+          if (task.subtasks.length === 0) return passesFilters(project, task, null);
+          return task.subtasks.some(subtask => passesFilters(project, task, subtask)) || passesFilters(project, task, null);
+        }).map(task => ({
+          ...task,
+          subtasks: task.subtasks.filter(subtask => passesFilters(project, task, subtask))
+        }));
+        return {...project, tasks};
+      }).filter(project => project.tasks.length > 0 || (els.projectFilter.value && String(project.id) === els.projectFilter.value));
+    }
+
+    function render() {
+      filteredTree = getFilteredTree();
+      if (!filteredTree.length) {
+        els.board.innerHTML = '<div class="project"><div class="project-head"><div><h2 class="project-title">Aucun élément à afficher</h2><div class="project-meta">Vérifie les noms de tables/colonnes, les filtres, ou ajoute des tâches.</div></div></div></div>';
+        return;
+      }
+
+      els.board.innerHTML = filteredTree.map(project => {
+        const projectName = escapeHtml(project[config.columns.projectName] || `Projet #${project.id}`);
+        const taskCount = project.tasks.length;
+        const subtaskCount = project.tasks.reduce((n, t) => n + t.subtasks.length, 0);
+        return `
+          <section class="project" data-project-id="${project.id}">
+            <div class="project-head">
+              <div>
+                <h2 class="project-title">${projectName}</h2>
+                <div class="project-meta">
+                  <span class="badge">${taskCount} tâche(s)</span>
+                  <span>${subtaskCount} sous-tâche(s)</span>
+                  <span>Projet ID ${escapeHtml(project.id)}</span>
+                </div>
+              </div>
+              <div class="toolbar-row">
+                <button class="mini-btn primary" data-action="add-task" data-project-id="${project.id}">+ Tâche</button>
+              </div>
+            </div>
+            <div class="task-list">
+              ${project.tasks.length ? project.tasks.map(task => renderTask(task)).join('') : `<div class="footer-note">Aucune tâche sur ce projet pour l’instant.</div>`}
+            </div>
+          </section>
+        `;
+      }).join('');
+      bindEvents();
+    }
+
+    function renderTask(task) {
+      const taskId = task.id;
+      const title = escapeHtml(task[config.columns.taskTitle] || 'Sans titre');
+      const status = escapeHtml(task[config.columns.taskStatus] || '');
+      const owner = escapeHtml(task[config.columns.taskOwner] || '');
+      const due = escapeHtml(task[config.columns.taskDue] || '');
+      const expanded = 'expanded';
+      return `
+        <div class="task ${expanded}" data-task-id="${taskId}">
+          <div class="task-head">
+            <button class="toggle" data-action="toggle-task" data-task-id="${taskId}">−</button>
+            <div class="cell"><input type="text" data-kind="task" data-row-id="${taskId}" data-col="${config.columns.taskTitle}" value="${title}" /></div>
+            <div class="cell">${renderTaskStatusSelect(taskId, status)}</div>
+            <div class="cell"><input type="text" data-kind="task" data-row-id="${taskId}" data-col="${config.columns.taskOwner}" value="${owner}" placeholder="Responsable" /></div>
+            <div class="cell"><input type="text" data-kind="task" data-row-id="${taskId}" data-col="${config.columns.taskDue}" value="${due}" placeholder="Échéance" /></div>
+            <div class="toolbar-row">
+              <button class="mini-btn" data-action="add-subtask" data-task-id="${taskId}">+ Sous-tâche</button>
+            </div>
+          </div>
+          <div class="subtasks" data-subtasks-of="${taskId}">
+            <div class="subtasks-wrap">
+              ${task.subtasks.length ? task.subtasks.map(sub => renderSubtask(sub)).join('') : '<div class="empty-subtasks">Aucune sous-tâche. La tâche reste visible et modifiable.</div>'}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderTaskStatusSelect(taskId, selected) {
+      const values = Array.from(statusValues).sort();
+      const options = [''].concat(values.includes(selected) || !selected ? values : [selected, ...values.filter(v => v !== selected)]);
+      return `<select data-kind="task" data-row-id="${taskId}" data-col="${config.columns.taskStatus}">${options.map(v => `<option value="${escapeHtml(v)}" ${v===selected?'selected':''}>${escapeHtml(v || '—')}</option>`).join('')}</select>`;
+    }
+
+    function renderSubtask(subtask) {
+      const id = subtask.id;
+      const title = escapeHtml(subtask[config.columns.subtaskTitle] || '');
+      const status = escapeHtml(subtask[config.columns.subtaskStatus] || '');
+      const owner = escapeHtml(subtask[config.columns.subtaskOwner] || '');
+      const due = escapeHtml(subtask[config.columns.subtaskDue] || '');
+      return `
+        <div class="subtask-row" data-subtask-id="${id}">
+          <div class="cell"><input type="text" data-kind="subtask" data-row-id="${id}" data-col="${config.columns.subtaskTitle}" value="${title}" placeholder="Sous-tâche" /></div>
+          <div class="cell"><input type="text" data-kind="subtask" data-row-id="${id}" data-col="${config.columns.subtaskStatus}" value="${status}" placeholder="Statut" /></div>
+          <div class="cell"><input type="text" data-kind="subtask" data-row-id="${id}" data-col="${config.columns.subtaskOwner}" value="${owner}" placeholder="Responsable" /></div>
+          <div class="cell"><input type="text" data-kind="subtask" data-row-id="${id}" data-col="${config.columns.subtaskDue}" value="${due}" placeholder="Échéance" /></div>
+          <div class="toolbar-row">
+            <button class="mini-btn danger" data-action="delete-subtask" data-row-id="${id}">Supprimer</button>
+          </div>
+        </div>
+      `;
+    }
+
+    async function savePrefs() {
+      const prefs = {
+        search: els.searchInput.value,
+        projectFilter: els.projectFilter.value,
+        statusFilter: els.statusFilter.value,
+        showEmptyTasks: els.showEmptyTasks.value,
+        config
+      };
+      await grist.setOption('hierarchyPrefs', prefs);
+      els.syncText.textContent = 'Préférences enregistrées';
+      els.syncDot.style.background = '#16a34a';
+    }
+
+    async function loadPrefs() {
+      const prefs = await grist.getOption('hierarchyPrefs');
+      if (!prefs) return;
+      if (prefs.config) config = {...config, ...prefs.config, tables: {...config.tables, ...prefs.config.tables}, columns: {...config.columns, ...prefs.config.columns}};
+      els.searchInput.value = prefs.search || '';
+      els.showEmptyTasks.value = prefs.showEmptyTasks || 'yes';
+    }
+
+    async function fetchAllData() {
+      setBusy('Chargement des tables…');
+      try {
+        const tables = await grist.docApi.listTables();
+        const required = [config.tables.projects, config.tables.tasks, config.tables.subtasks];
+        const missing = required.filter(t => !tables.includes(t));
+        if (missing.length) {
+          throw new Error('Tables introuvables : ' + missing.join(', '));
+        }
+        const [projects, tasks, subtasks] = await Promise.all([
+          grist.docApi.fetchTable(config.tables.projects),
+          grist.docApi.fetchTable(config.tables.tasks),
+          grist.docApi.fetchTable(config.tables.subtasks)
+        ]);
+        dataStore = {projects, tasks, subtasks};
+        fillProjectFilter();
+        collectStatuses();
+        render();
+        clearBusy();
+      } catch (err) {
+        els.board.innerHTML = `<div class="project"><div class="project-head"><div><h2 class="project-title">Erreur de chargement</h2><div class="project-meta">${escapeHtml(err.message)}</div></div></div><div class="footer-note">Noms attendus par défaut : Projects, Tasks, Subtasks avec colonnes Name / Title / Project / Task / Status / Owner / DueDate.</div></div>`;
+        clearBusy('Erreur', '#dc2626');
+      }
+    }
+
+    async function updateRecord(kind, rowId, col, value) {
+      setBusy('Enregistrement…', '#2563eb');
+      try {
+        const tableId = kind === 'task' ? config.tables.tasks : config.tables.subtasks;
+        await grist.docApi.applyUserActions([
+          ['UpdateRecord', tableId, Number(rowId), {[col]: value}]
+        ]);
+        await fetchAllData();
+      } catch (err) {
+        clearBusy('Erreur d’écriture', '#dc2626');
+        alert('Erreur lors de la mise à jour : ' + err.message);
+      }
+    }
+
+    async function addTask(projectId) {
+      setBusy('Création de tâche…', '#2563eb');
+      try {
+        await grist.docApi.applyUserActions([
+          ['AddRecord', config.tables.tasks, null, {
+            [config.columns.taskTitle]: 'Nouvelle tâche',
+            [config.columns.taskProjectRef]: Number(projectId)
+          }]
+        ]);
+        await fetchAllData();
+      } catch (err) {
+        clearBusy('Erreur de création', '#dc2626');
+        alert(err.message);
+      }
+    }
+
+    async function addSubtask(taskId) {
+      setBusy('Création de sous-tâche…', '#2563eb');
+      try {
+        await grist.docApi.applyUserActions([
+          ['AddRecord', config.tables.subtasks, null, {
+            [config.columns.subtaskTitle]: 'Nouvelle sous-tâche',
+            [config.columns.subtaskTaskRef]: Number(taskId)
+          }]
+        ]);
+        await fetchAllData();
+      } catch (err) {
+        clearBusy('Erreur de création', '#dc2626');
+        alert(err.message);
+      }
+    }
+
+    async function deleteSubtask(rowId) {
+      if (!confirm('Supprimer cette sous-tâche ?')) return;
+      setBusy('Suppression…', '#2563eb');
+      try {
+        await grist.docApi.applyUserActions([
+          ['RemoveRecord', config.tables.subtasks, Number(rowId)]
+        ]);
+        await fetchAllData();
+      } catch (err) {
+        clearBusy('Erreur de suppression', '#dc2626');
+        alert(err.message);
+      }
+    }
+
+    function bindEvents() {
+      document.querySelectorAll('[data-kind="task"], [data-kind="subtask"]').forEach(el => {
+        const evt = el.tagName === 'SELECT' ? 'change' : 'blur';
+        el.addEventListener(evt, e => {
+          updateRecord(e.target.dataset.kind, e.target.dataset.rowId, e.target.dataset.col, e.target.value);
+        }, {once: true});
+      });
+
+      document.querySelectorAll('[data-action="add-task"]').forEach(btn => {
+        btn.addEventListener('click', () => addTask(btn.dataset.projectId), {once: true});
+      });
+      document.querySelectorAll('[data-action="add-subtask"]').forEach(btn => {
+        btn.addEventListener('click', () => addSubtask(btn.dataset.taskId), {once: true});
+      });
+      document.querySelectorAll('[data-action="delete-subtask"]').forEach(btn => {
+        btn.addEventListener('click', () => deleteSubtask(btn.dataset.rowId), {once: true});
+      });
+      document.querySelectorAll('[data-action="toggle-task"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const task = btn.closest('.task');
+          const panel = task.querySelector('.subtasks');
+          const hidden = panel.classList.toggle('hidden');
+          btn.textContent = hidden ? '+' : '−';
+        }, {once: true});
+      });
+    }
+
+    function bindStaticEvents() {
+      [els.searchInput, els.projectFilter, els.statusFilter, els.showEmptyTasks].forEach(el => {
+        el.addEventListener('input', render);
+        el.addEventListener('change', render);
+      });
+      els.reloadBtn.addEventListener('click', fetchAllData);
+      els.savePrefsBtn.addEventListener('click', savePrefs);
+    }
+
+    async function init() {
+      grist.ready({
+        requiredAccess: 'full',
+        onEditOptions: async () => {
+          const current = await grist.getOption('hierarchyPrefs');
+          const input = prompt(
+            'Configurer les tables sous forme JSON. Exemple: {"tables":{"projects":"Projects","tasks":"Tasks","subtasks":"Subtasks"},"columns":{"projectName":"Name","taskProjectRef":"Project","taskTitle":"Title","taskStatus":"Status","taskOwner":"Owner","taskDue":"DueDate","subtaskTaskRef":"Task","subtaskTitle":"Title","subtaskStatus":"Status","subtaskOwner":"Owner","subtaskDue":"DueDate"}}',
+            JSON.stringify(current?.config || config)
+          );
+          if (!input) return;
+          const parsed = JSON.parse(input);
+          config = {...config, ...parsed, tables: {...config.tables, ...parsed.tables}, columns: {...config.columns, ...parsed.columns}};
+          await savePrefs();
+          await fetchAllData();
+        }
+      });
+      bindStaticEvents();
+      await loadPrefs();
+      await fetchAllData();
+      grist.onRecords(async () => {
+        await fetchAllData();
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>
